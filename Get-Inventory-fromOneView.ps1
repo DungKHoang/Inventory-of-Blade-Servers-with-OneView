@@ -28,7 +28,7 @@
 ## Contact: Dung.HoangKhac@hp.com
 
 
-Param ( [string]$OVApplianceI   =   "", 
+Param ( [string]$OVApplianceIP  =   "", 
         [string]$OVAdminName    =   "Administrator", 
         [string]$OVAdminPassword=   "",
         [string]$OneViewModule  = "HPOneView.310",  
