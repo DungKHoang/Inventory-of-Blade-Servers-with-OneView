@@ -12,7 +12,7 @@ Process
 
 
 Run the script
- .\Get-SystemInventory-OneView.ps1 -OVApplianceIP <OV-IP-Address> -OVAdminName <Admin-name> -OVAdminPassword <password> 
+ .\Get-SystemInventory-OneView.ps1 -OVApplianceIP OV-IP-Address -OVAdminName Admin-name -OVAdminPassword password 
 
 
 Result:
