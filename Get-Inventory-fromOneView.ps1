@@ -23,7 +23,8 @@
 ##
 ##
 ## History: 
-##         Dec-2017       : v1.0
+##         Dec-2017 v1.0      - Add FW inventory for components of server hardware 
+##                            - Add inventory of Spp ( Date applied to server)
 ##
 ## Contact: Dung.HoangKhac@hp.com
 
@@ -55,36 +56,41 @@ Param ([string]$Enclosure)
     $TimeStamp = get-date -format MMMyyyy 
 
     $script:Fwfile  = "$Enclosure-FW-$TimeStamp.CSV"
+    $script:Sppfile = "$Enclosure-Spp-$TimeStamp.CSV"
     $script:Srvfile = "$Enclosure-Servers-$TimeStamp.CSV"
-    $script:SNPFile  = "$Enclosure-Parts-$TimeStamp.CSV"
+    $script:SNPFile = "$Enclosure-Parts-$TimeStamp.CSV"
     $script:IPSFile = "$Enclosure-IPs-$TimeStamp.CSV"
     $script:ConFile = "$Enclosure-Connections-$TimeStamp.CSV"
     $script:UplFile = "$Enclosure-UpLinks-$TimeStamp.CSV"
 
-    # ---Generate header for Firmware CSV file
+    # ---Create header for Firmware CSV file
     $FirmwareCSV = New-Item $script:FwFile  -type file -force
-    Set-content -Path $script:FwFile -Value "Location,Model,FW,iLOModel,iLOFW" 
+    Set-content -Path $script:FwFile -Value "Location,Model,FW" 
 
-    # ---Generate header for Srv CSV file
+    # ---Create header for SPP CSV file
+    $SppCSV = New-Item $script:SppFile  -type file -force
+    Set-content -Path $script:SppFile -Value "Fw Baseline,AppliedTo,InstallDate,InstallState"
+
+    # ---Create header for Srv CSV file
     $SrvCSV = New-Item $script:SrvFile  -type file -force
     Set-content -Path $script:SrvFile -Value "Location,Server Model,CPU Type,CPU Count,CPU Cores,Memory(GB)"
     
 
-    # ---Generate header for Parts CSV file
+    # ---Create header for Parts CSV file
     $SNPCSV = New-Item $script:SNPFile  -type file -force
     Set-content -Path $script:SNPFile -Value "Location,Device,S/N,Part Number,Spare Part Number" 
 
 
-    # ---Generate header for Memory CSV file
+    # ---Create header for Memory CSV file
     $IPsCSV = New-Item $script:IPsFile  -type file -force
     Set-content -Path $script:IPsFile -Value "Location,Device,IP Address,FQDN"
                     
 
-    # ---Generate header for Connections CSV file
+    # ---Create header for Connections CSV file
     $ConCSV = New-Item $script:ConFile  -type file -force
     Set-content -Path $script:ConFile -Value "Location,Type,Port,MAC,WWPN,WWNN,Network,Device,Model"
 
-    # ---Generate header for UpLink CSV file
+    # ---Create header for UpLink CSV file
     $UplCSV = New-Item $script:UplFile  -type file -force
     Set-content -Path $script:UplFile -Value "Location,PortName,RemotePortDescription,RemoteChassisID,RemoteMgmtAddress,RemoteSystemName,RemoteSystemDescription" 
      
@@ -153,12 +159,13 @@ Foreach ($ThisEnclosure in $ListofEnclosures)
     #
     $AllSNParts        = @()
     $AllFW             = @()
+    $AllSpp            = @()
     
-    $AllIPs            = @()
-    $AllConnections    = @()
-    $AllUpLinks        = @()
-    
-    $ServerInv         = @()
+    $AllIPs             = @()
+    $AllConnections     = @()
+    $AllUpLinks         = @()
+    $AllServers         = @()
+    $CurrentSpp         = ""
 
     # ---------------------------------
     # Enclosure
@@ -174,6 +181,7 @@ Foreach ($ThisEnclosure in $ListofEnclosures)
     $SerialNumber = $ThisEnclosure.serialNumber
     $PartNumber   = $ThisEnclosure.PartNumber
     $SparePart    = ""
+   
 
     # ------------"Location,Device,S/N,Part Number,Spare Part Number" 
     $AllSNParts +="$Location,$Model,$SerialNumber,$PartNumber,$SparePart"
@@ -187,16 +195,16 @@ Foreach ($ThisEnclosure in $ListofEnclosures)
     {
         if (($uri -ne $NULL) -and ($uri.Startswith('/')) -and ($uri -like '*server-hardware*'))
         {
-            $ThisBay = Send-HPOVRequest -uri $Uri -Hostname $global:ApplianceConnection
+            $ThisBay    = Send-HPOVRequest -uri $Uri -Hostname $global:ApplianceConnection
 
             $OneViewProfileName = $ThisBay.name
             $BaySlot            = $ThisBay.position
             $spUri              = $ThisBay.ServerProfileUri
             
-
             if (($spUri -ne $NULL) -and ($spUri.Startswith('/')) )
             {
                 $ThisProfile      = send-HPOVRequest -uri $spUri -Hostname $global:ApplianceConnection
+                $FwBaselineUri    = $ThisProfile.firmware.firmwarebaselineUri
                 $Connections      = $ThisProfile.Connections
                 Foreach($ThisConnection in $Connections)
                 {
@@ -257,18 +265,68 @@ Foreach ($ThisEnclosure in $ListofEnclosures)
             $AllIPs += "$Location,$Device,$IP,$FQDN"
 
             # --------------------------
-            #   Collect Firmware: ROM and iLO
+            #   Collect Firmware: ROM and HW components
                             
             
-            $Location = $Enclname+ "- Bay $BaySlot";
-            $Model    = $ThisBay.shortModel;
-            $FW       = $ThisBay.romVersion;
-            $iLOModel = $ThisBay.mpModel;
-            $iLOFW    = $ThisBay.mpFirmwareVersion;
+            $Location = $Enclname+ "- Bay $BaySlot"
+            $Model    = $ThisBay.shortModel
+            $FW       = $ThisBay.romVersion
+            $iLOModel = $ThisBay.mpModel
+            $iLOFW    = $ThisBay.mpFirmwareVersion
 
-            # ------- "Location,Model,FW,iLOModel,iLOFW" 
-            $AllFW += "$Location,$Model,$FW,$iLOModel,$iLOFW"
+            # ------- "Location,Model,FW" 
+            $AllFW += "$Location,$Model,$FW"
 
+            $Location = ""
+
+            $FWInventoryUri = $ThisBay.serverFirmwareInventoryUri
+            if ($FWInventoryUri)
+            {
+                $fwlist         = send-hpovRequest -uri $FWInventoryUri
+                $fwComponents   = $fwlist.Components
+                foreach ($fwcomponent in $fwComponents)
+                {
+                    $Model       = $fwComponent.componentName
+                    $FW          = $fwComponent.componentVersion
+                    $AllFW      += "$Location,$model,$FW"
+                }
+            }
+
+            $AllFW   += ",,"    # Add a blank line
+
+            # --------------------------
+            #   Collect FW Baseline settings
+
+            if ($FwBaselineUri)                # Get URi from Server profile
+            {
+                $ThisSpp            = Send-HPOVRequest -uri $FwBaselineUri
+                $SppName            = $ThisSpp.baselineShortName
+                $sppInstallState    = $ThisBay.serversettings.firmwareAndDriversInstallState
+                $t                  = $sppInstallState.installedStateTimestamp
+                if ($t)
+                {
+                    $sppInstallDate = ([DateTime]$t).DateTime -replace "," , "_"
+                    $state          = ""
+                }
+                else 
+                {
+                    $sppInstallDate  = ""
+                    $state           = $sppInstallState.installState
+                }
+            
+                $Location           = $Enclname + "- Bay $BaySlot"
+                if ($CurrentSpp -ne $SppName)
+                {
+                    $CurrentSpp = $SppName
+                }
+                else 
+                {
+                    $SppName    = ""   # Don't repeat Spp Name for each line                     
+                }
+
+                # "Fw Baseline,AppliedTo,InstallDate,InstallState" 
+                $AllSpp             += "$SppName,$Location,$sppInstallDate,$state" 
+            }
 
 
             # --------------------------
@@ -310,7 +368,7 @@ Foreach ($ThisEnclosure in $ListofEnclosures)
             $Memory    = "$([int]($ThisBay.memoryMB) / 1KB) GB"
 
             # ------------"Location,Server Model,CPU Type,CPU Count,CPU Cores,Memory(GB)"                                                                                 
-            $ServerInv += "$Location,$Model,$CPU,$CPUCount,$Core,$Memory"                   
+            $AllServers += "$Location,$Model,$CPU,$CPUCount,$Core,$Memory"                   
         }
 
     }
@@ -494,8 +552,9 @@ Foreach ($ThisEnclosure in $ListofEnclosures)
     add-content -path $script:ConFile   -Value $AllConnections
     add-content -path $script:SNPFile   -Value $AllSNParts
     add-content -path $script:FWFile    -Value $AllFW
+    add-content -path $script:SppFile    -Value $AllSpp
     add-content -path $script:IPSFile   -Value $AllIPs
-    add-content -path $script:SrvFile   -Value $ServerInv
+    add-content -path $script:SrvFile   -Value $AllServers
     add-content -path $script:UplFile   -Value $AllUpLinks
    
 
